@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Zoning Search</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #f5f5f5; display: flex; justify-content: center; padding: 40px 20px; }
+  .container { max-width: 680px; width: 100%; }
+  .section-title { font-size: 16px; font-weight: 500; color: #1a1a1a; margin-bottom: 12px; }
+  .search-row { display: flex; gap: 12px; align-items: center; margin-bottom: 16px; }
+  .search-bar { flex: 1; display: flex; align-items: center; border: 1px solid #ccc; border-radius: 8px; padding: 8px 12px; background: #fff; position: relative; height: 40px; }
+  .search-bar input { border: none; outline: none; flex: 1; font-size: 14px; background: transparent; color: #1a1a1a; font-family: inherit; position: relative; z-index: 2; }
+  .typed-placeholder { position: absolute; left: 12px; top: 0; bottom: 0; right: 30px; display: flex; align-items: center; font-size: 14px; color: #999; pointer-events: none; z-index: 1; white-space: nowrap; overflow: hidden; }
+  .cursor-blink { display: inline-block; width: 1.5px; height: 15px; background: #999; margin-left: 1px; animation: blink 0.85s step-end infinite; }
+  @keyframes blink { 0%,100% { opacity: 1; } 50% { opacity: 0; } }
+
+  .search-icon { width: 18px; height: 18px; color: #888; cursor: pointer; flex-shrink: 0; position: relative; z-index: 2; }
+  .search-icon:hover { color: #555; }
+  .cta-btn { padding: 8px 16px; font-size: 13px; font-weight: 500; border: 1.5px solid #333; border-radius: 8px; background: #fff; color: #1a1a1a; cursor: pointer; white-space: nowrap; font-family: inherit; }
+  .cta-btn:hover { background: #f0f0f0; }
+
+  .thinking { display: none; align-items: center; gap: 12px; padding: 14px 0; }
+  .thinking-text { font-size: 13px; color: #888; position: relative; height: 18px; overflow: hidden; min-width: 220px; }
+  .thinking-label { position: absolute; left: 0; top: 0; white-space: nowrap; opacity: 0; transform: translateY(8px); transition: opacity 0.3s ease, transform 0.3s ease; }
+  .thinking-label.active { opacity: 1; transform: translateY(0); }
+  .thinking-label.exiting { opacity: 0; transform: translateY(-8px); }
+
+  .doc-wrap { position: relative; width: 18px; height: 22px; flex-shrink: 0; }
+  .doc-body { width: 18px; height: 22px; background: #fff; border: 1.5px solid #0A63CB; border-radius: 2px; }
+  .doc-line { height: 1.5px; background: #0A63CB; border-radius: 1px; margin: 3px 3px 0 3px; opacity: 0.25; }
+  @keyframes scanLine1 { 0%,100% { opacity: 0.2; } 25% { opacity: 1; } }
+  @keyframes scanLine2 { 0%,100% { opacity: 0.2; } 50% { opacity: 1; } }
+  @keyframes scanLine3 { 0%,100% { opacity: 0.2; } 75% { opacity: 1; } }
+  .thinking .doc-line:nth-child(1) { animation: scanLine1 1.4s ease-in-out infinite; }
+  .thinking .doc-line:nth-child(2) { animation: scanLine2 1.4s ease-in-out infinite; }
+  .thinking .doc-line:nth-child(3) { animation: scanLine3 1.4s ease-in-out infinite; }
+
+  .answer-card { background: #fff; border: 1px solid #e5e5e5; border-radius: 12px; padding: 16px 20px; display: none; opacity: 0; transform: translateY(4px); transition: opacity 0.3s ease, transform 0.3s ease; }
+  .answer-card.visible { opacity: 1; transform: translateY(0); }
+  .answer-header { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+  .check-circle { width: 20px; height: 20px; border-radius: 50%; background: #e6f4ea; display: flex; align-items: center; justify-content: center; }
+  .check-circle svg { width: 12px; height: 12px; color: #1e7e34; }
+  .answer-title { font-size: 14px; font-weight: 500; color: #1e7e34; }
+  .answer-body { font-size: 13px; color: #666; line-height: 1.6; }
+
+  .controls { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
+  .state-label { display: inline-block; font-size: 11px; color: #888; background: #eee; padding: 2px 8px; border-radius: 4px; cursor: pointer; }
+  .state-label:hover { background: #ddd; }
+</style>
+</head>
+<body>
+<div class="container">
+  <div class="controls">
+    <span class="section-title">What can I build here?</span>
+    <span class="state-label" id="resetBtn">Reset demo</span>
+  </div>
+
+  <div class="search-row">
+    <div class="search-bar">
+      <input type="text" id="searchInput" />
+      <div class="typed-placeholder" id="placeholder"><span id="displayText">Can I </span><span class="cursor-blink"></span></div>
+      <svg class="search-icon" id="searchBtn" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+    </div>
+    <button class="cta-btn">View all 147 uses</button>
+  </div>
+
+  <div class="thinking" id="thinking">
+    <div class="doc-wrap">
+      <div class="doc-body">
+        <div class="doc-line"></div>
+        <div class="doc-line"></div>
+        <div class="doc-line"></div>
+      </div>
+    </div>
+    <div class="thinking-text" id="thinkingText"></div>
+  </div>
+
+  <div class="answer-card" id="answerCard">
+    <div class="answer-header">
+      <div class="check-circle"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg></div>
+      <span class="answer-title">Yes, you can open a restaurant here!</span>
+    </div>
+    <div class="answer-body">Restaurants, cafes, bakeries, coffee shops, and delis are all allowed as-of-right — no special permits needed. If you're planning to serve alcohol, stay open past 11pm, or have outdoor patio seating, you'll need a conditional use permit.</div>
+  </div>
+</div>
+
+<script>
+var displayText = document.getElementById('displayText');
+var placeholder = document.getElementById('placeholder');
+var searchInput = document.getElementById('searchInput');
+var searchBtn = document.getElementById('searchBtn');
+var thinking = document.getElementById('thinking');
+var thinkingText = document.getElementById('thinkingText');
+var answerCard = document.getElementById('answerCard');
+var resetBtn = document.getElementById('resetBtn');
+
+var prefix = "Can I ";
+var suffixes = [
+  "open a restaurant here?",
+  "run a retail store?",
+  "open a daycare center?",
+  "do short term rentals?",
+  "build an ADU?"
+];
+
+var currentSuffix = 0;
+var charIndex = 0;
+var isDeleting = false;
+var typingTimer = null;
+var isUserFocused = false;
+var animationStopped = false;
+var searchTimeouts = [];
+var isSearching = false;
+
+var TYPE_SPEED = 85;
+var DELETE_SPEED = 45;
+var PAUSE_AFTER_TYPE = 2200;
+var PAUSE_AFTER_DELETE = 400;
+
+function updateDisplay() {
+  displayText.textContent = prefix + suffixes[currentSuffix].substring(0, charIndex);
+}
+
+function typeStep() {
+  if (isUserFocused || animationStopped) return;
+  var suffix = suffixes[currentSuffix];
+  if (!isDeleting) {
+    charIndex++;
+    updateDisplay();
+    if (charIndex === suffix.length) {
+      typingTimer = setTimeout(function() { isDeleting = true; typeStep(); }, PAUSE_AFTER_TYPE);
+      return;
+    }
+    typingTimer = setTimeout(typeStep, TYPE_SPEED);
+  } else {
+    charIndex--;
+    updateDisplay();
+    if (charIndex === 0) {
+      isDeleting = false;
+      currentSuffix = (currentSuffix + 1) % suffixes.length;
+      typingTimer = setTimeout(typeStep, PAUSE_AFTER_DELETE);
+      return;
+    }
+    typingTimer = setTimeout(typeStep, DELETE_SPEED);
+  }
+}
+
+searchInput.addEventListener('focus', function() {
+  isUserFocused = true;
+  clearTimeout(typingTimer);
+  placeholder.style.display = 'none';
+});
+
+searchInput.addEventListener('blur', function() {
+  if (searchInput.value === '' && !animationStopped) {
+    isUserFocused = false;
+    placeholder.style.display = 'flex';
+    typeStep();
+  }
+});
+
+function clearSearchTimeouts() {
+  searchTimeouts.forEach(function(t) { clearTimeout(t); });
+  searchTimeouts = [];
+}
+
+function cycleMessage(text) {
+  var labels = thinkingText.querySelectorAll('.thinking-label');
+  var last = labels[labels.length - 1];
+  if (last) {
+    last.classList.remove('active');
+    last.classList.add('exiting');
+    setTimeout(function() { last.remove(); }, 300);
+  }
+  var label = document.createElement('span');
+  label.className = 'thinking-label';
+  label.textContent = text;
+  thinkingText.appendChild(label);
+  requestAnimationFrame(function() {
+    requestAnimationFrame(function() { label.classList.add('active'); });
+  });
+}
+
+var loadingMessages = [
+  "Scanning zoning codes...",
+  "Reading the fine print...",
+  "Analyzing the regulations...",
+  "Crossing the t's and dotting the i's...",
+  "Almost there..."
+];
+
+function runSearch() {
+  if (isSearching) return;
+  isSearching = true;
+  animationStopped = true;
+  clearTimeout(typingTimer);
+  placeholder.style.display = 'none';
+  var currentQuery = searchInput.value || (prefix + suffixes[currentSuffix].substring(0, charIndex));
+  searchInput.value = currentQuery;
+  answerCard.style.display = 'none';
+  answerCard.classList.remove('visible');
+  thinkingText.innerHTML = '';
+  thinking.style.display = 'flex';
+  cycleMessage(loadingMessages[0]);
+  var interval = 1200;
+  for (var i = 1; i < loadingMessages.length; i++) {
+    (function(idx) {
+      var t = setTimeout(function() {
+        if (!isSearching) return;
+        cycleMessage(loadingMessages[idx]);
+      }, interval * idx);
+      searchTimeouts.push(t);
+    })(i);
+  }
+  var finishT = setTimeout(function() {
+    thinking.style.display = 'none';
+    answerCard.style.display = 'block';
+    requestAnimationFrame(function() { answerCard.classList.add('visible'); });
+    isSearching = false;
+  }, interval * loadingMessages.length);
+  searchTimeouts.push(finishT);
+}
+
+searchBtn.addEventListener('click', runSearch);
+searchInput.addEventListener('keydown', function(e) { if (e.key === 'Enter') runSearch(); });
+
+resetBtn.addEventListener('click', function() {
+  isSearching = false;
+  animationStopped = false;
+  isUserFocused = false;
+  clearSearchTimeouts();
+  clearTimeout(typingTimer);
+  thinking.style.display = 'none';
+  answerCard.style.display = 'none';
+  answerCard.classList.remove('visible');
+  thinkingText.innerHTML = '';
+  searchInput.value = '';
+  placeholder.style.display = 'flex';
+  currentSuffix = 0;
+  charIndex = 0;
+  isDeleting = false;
+  displayText.textContent = prefix;
+  typeStep();
+});
+
+setTimeout(typeStep, 100);
+</script>
+</body>
+</html>
