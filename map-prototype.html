@@ -1,0 +1,632 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Map prototype</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@2.47.0/tabler-icons.min.css" />
+<style>
+  :root {
+    --bg: #F5F4EE;
+    --bg-secondary: #ECEBE3;
+    --border-tertiary: #E5E3D8;
+    --text-primary: #1F1E1A;
+    --text-secondary: #5F5E5A;
+    --text-tertiary: #888780;
+    --sale: #185FA5;
+    --lease: #534AB7;
+    --map-bg: #EAEEE8;
+    --radius-md: 8px;
+    --radius-lg: 12px;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    padding: 32px 24px 48px;
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+    background: var(--bg);
+    color: var(--text-primary);
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .page-wrap { max-width: 760px; margin: 0 auto; }
+
+  .controls {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 14px;
+    flex-wrap: wrap;
+  }
+
+  .mode-toggle {
+    display: inline-flex;
+    background: var(--bg-secondary);
+    border-radius: var(--radius-md);
+    padding: 3px;
+    gap: 2px;
+  }
+  .mode-toggle button {
+    font-size: 13px;
+    padding: 6px 14px;
+    border: none;
+    background: transparent;
+    border-radius: 6px;
+    color: var(--text-secondary);
+    font-weight: 400;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-family: inherit;
+    transition: background 120ms ease, color 120ms ease;
+  }
+  .mode-toggle button[aria-selected="true"] {
+    background: white;
+    font-weight: 500;
+  }
+
+  .zoom-block {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 12px;
+    color: var(--text-tertiary);
+    margin-left: auto;
+  }
+  .zoom-block input[type="range"] { width: 220px; }
+  .zoom-label { min-width: 88px; }
+
+  .map-container {
+    position: relative;
+    width: 100%;
+    height: 540px;
+    background: var(--map-bg);
+    border-radius: var(--radius-lg);
+    border: 0.5px solid var(--border-tertiary);
+    overflow: hidden;
+  }
+</style>
+</head>
+<body>
+<div class="page-wrap">
+
+  <div class="controls">
+    <div id="mode-toggle" class="mode-toggle" role="tablist">
+      <button data-mode="sale" aria-selected="true"><i class="ti ti-tag" aria-hidden="true"></i>For sale</button>
+      <button data-mode="lease" aria-selected="false"><i class="ti ti-key" aria-hidden="true"></i>For lease</button>
+      <button data-mode="comp" aria-selected="false"><i class="ti ti-history" aria-hidden="true"></i>Comps &amp; records</button>
+    </div>
+    <div class="zoom-block">
+      <span>Zoom</span>
+      <input type="range" id="zoom" min="0" max="100" value="55" step="1" />
+      <span id="zoom-label" class="zoom-label">Metro</span>
+    </div>
+  </div>
+
+  <div id="map-container" class="map-container">
+    <svg id="bg-svg" width="100%" height="100%" viewBox="0 0 680 540" preserveAspectRatio="xMidYMid slice" style="position: absolute; inset: 0; pointer-events: none; transform-origin: 50% 50%; transition: transform 480ms cubic-bezier(0.32, 0.72, 0, 1);">
+      <rect width="680" height="540" fill="#EAEEE8"/>
+      <path d="M 0 200 Q 120 140 220 180 T 420 160 Q 540 140 680 190" stroke="#C8D4DC" stroke-width="22" fill="none" opacity="0.7"/>
+      <path d="M 80 0 L 120 220 L 180 320 L 260 380 L 340 460 L 420 540" stroke="#D8D2C4" stroke-width="3" fill="none"/>
+      <path d="M 200 0 L 260 120 L 340 200 L 420 280 L 520 360 L 600 460 L 680 500" stroke="#D8D2C4" stroke-width="2.5" fill="none"/>
+      <path d="M 0 320 L 100 340 L 220 360 L 360 380 L 500 400 L 680 380" stroke="#D8D2C4" stroke-width="3" fill="none"/>
+      <path d="M 0 440 L 140 460 L 300 470 L 460 480 L 680 460" stroke="#D8D2C4" stroke-width="2.5" fill="none"/>
+      <path d="M 280 0 L 320 100 L 360 200 L 400 300 L 440 400 L 480 540" stroke="#D8D2C4" stroke-width="2" fill="none"/>
+      <path d="M 520 0 L 540 120 L 560 240 L 580 360 L 600 460 L 620 540" stroke="#D8D2C4" stroke-width="2" fill="none"/>
+      <ellipse cx="90" cy="440" rx="60" ry="40" fill="#D4E2C8" opacity="0.5"/>
+      <ellipse cx="600" cy="140" rx="70" ry="50" fill="#D4E2C8" opacity="0.5"/>
+    </svg>
+    <div id="dots-layer" style="position: absolute; inset: 0;"></div>
+    <div id="marks-layer" style="position: absolute; inset: 0;"></div>
+  </div>
+
+</div>
+
+<script>
+(function() {
+  function seed(n) { let s = n; return () => (s = (s * 9301 + 49297) % 233280) / 233280; }
+  const SALE_COLOR = '#185FA5';
+  const LEASE_COLOR = '#534AB7';
+  const ZOOM_DURATION = 480;
+  const ZOOM_EASING = 'cubic-bezier(0.32, 0.72, 0, 1)';
+  const MORPH_DURATION = 300;
+  const LIFT_DURATION = 180;
+  const DEBOUNCE_MS = 100;
+  const MAP_W = 680;
+  const MAP_H = 540;
+  const MAP_CX = MAP_W / 2;
+  const MAP_CY = MAP_H / 2;
+  const CARD_W = 280;
+  const CARD_H = 280;
+  const CARD_GAP = 8;
+  const HOVER_LIFT = 3;
+  const HOVER_SCALE = 1.1;
+  const SALE_LEASE_HEIGHT = 34;
+  const COMP_HEIGHT = 36;
+  const DOT_W = 15;
+  const DOT_H = 10;
+  const DOT_RADIUS = '5px';
+  const DOT_BORDER = '0.5px';
+
+  function buildListings(mode, seedNum) {
+    const rand = seed(seedNum);
+    const clusters = [
+      {cx: 120, cy: 300, n: 12}, {cx: 180, cy: 400, n: 9}, {cx: 290, cy: 340, n: 11},
+      {cx: 380, cy: 310, n: 12}, {cx: 480, cy: 290, n: 13}, {cx: 560, cy: 320, n: 9},
+      {cx: 240, cy: 210, n: 8}, {cx: 420, cy: 420, n: 10}, {cx: 540, cy: 440, n: 9},
+      {cx: 340, cy: 230, n: 7},
+    ];
+    const out = [];
+    let id = 0;
+    clusters.forEach(c => {
+      for (let i = 0; i < c.n; i++) {
+        const r = rand() * 55 + 5;
+        const a = rand() * Math.PI * 2;
+        const x = c.cx + Math.cos(a) * r;
+        const y = c.cy + Math.sin(a) * r;
+        if (x < 30 || x > 650 || y < 30 || y > 510) continue;
+        let price, fullPrice, propType, sqft;
+        if (mode === 'sale') {
+          const v = Math.round(400 + rand() * 4500);
+          price = v >= 1000 ? '$' + (v / 1000).toFixed(1) + 'M' : '$' + v + 'K';
+          fullPrice = '$' + (v * 1000).toLocaleString();
+          propType = ['Industrial', 'Office', 'Retail', 'Mixed-use', 'Multifamily'][Math.floor(rand() * 5)];
+          sqft = Math.round(20000 + rand() * 200000).toLocaleString();
+          out.push({ id: id++, x, y, price, fullPrice, propType, sqft, category: 'sale' });
+        } else if (mode === 'lease') {
+          const v = (2 + rand() * 38).toFixed(2);
+          price = '$' + v + '/SF';
+          fullPrice = '$' + v + '/SF/year';
+          propType = ['Office', 'Retail', 'Industrial', 'Flex', 'Medical'][Math.floor(rand() * 5)];
+          sqft = Math.round(2000 + rand() * 50000).toLocaleString();
+          out.push({ id: id++, x, y, price, fullPrice, propType, sqft, category: 'lease' });
+        } else {
+          const isSaleComp = rand() > 0.45;
+          if (isSaleComp) {
+            const v = Math.round(400 + rand() * 4500);
+            price = v >= 1000 ? '$' + (v / 1000).toFixed(1) + 'M' : '$' + v + 'K';
+            fullPrice = '$' + (v * 1000).toLocaleString();
+            propType = ['Industrial', 'Office', 'Retail'][Math.floor(rand() * 3)];
+            sqft = Math.round(20000 + rand() * 200000).toLocaleString();
+          } else {
+            const v = (2 + rand() * 38).toFixed(2);
+            price = '$' + v + '/SF';
+            fullPrice = '$' + v + '/SF/year';
+            propType = ['Office', 'Retail', 'Industrial'][Math.floor(rand() * 3)];
+            sqft = Math.round(2000 + rand() * 50000).toLocaleString();
+          }
+          out.push({ id: id++, x, y, price, fullPrice, propType, sqft, category: 'comp', subType: isSaleComp ? 'sale' : 'lease' });
+        }
+      }
+    });
+    return out;
+  }
+
+  const addressPool = [
+    '3305 E Vernon Ave, Vernon, CA',
+    '1827 N Highland Ave, Los Angeles, CA',
+    '4500 E Olympic Blvd, Los Angeles, CA',
+    '850 S Hill St, Los Angeles, CA',
+    '2120 Long Beach Ave, Los Angeles, CA',
+    '6601 Wilshire Blvd, Los Angeles, CA',
+    '725 W 7th St, Los Angeles, CA',
+    '12180 Telegraph Rd, Santa Fe Springs, CA',
+    '5757 W Century Blvd, Los Angeles, CA',
+    '1133 N La Brea Ave, West Hollywood, CA',
+  ];
+  function addressFor(id) { return addressPool[id % addressPool.length]; }
+
+  const bgSvg = document.getElementById('bg-svg');
+  const dotsLayer = document.getElementById('dots-layer');
+  const marksLayer = document.getElementById('marks-layer');
+  const zoomEl = document.getElementById('zoom');
+  const zoomLabel = document.getElementById('zoom-label');
+  const modeToggle = document.getElementById('mode-toggle');
+
+  let mode = 'sale';
+  let listings = buildListings(mode, 11);
+  let hoveredId = null;
+  let selectedId = null;
+  let currentMarkers = new Set();
+  const elementsById = new Map();
+  let debounceTimer = null;
+  let cardEl = null;
+
+  function zoomToScale(z) { return 0.85 + (z / 100) * 1.55; }
+
+  function pickMarkers() {
+    const zoom = +zoomEl.value;
+    if (zoom >= 80) return new Set(listings.map(l => l.id));
+    const scale = zoomToScale(zoom);
+    const denser = mode === 'comp';
+    let baseCell;
+    if (zoom < 25) baseCell = denser ? 260 : 200;
+    else if (zoom < 55) baseCell = denser ? 190 : 140;
+    else baseCell = denser ? 130 : 90;
+    const cellSize = baseCell / scale;
+    const buckets = {};
+    listings.forEach(l => {
+      const k = Math.floor(l.x / cellSize) + ',' + Math.floor(l.y / cellSize);
+      if (!buckets[k]) buckets[k] = [];
+      buckets[k].push(l);
+    });
+    const picks = new Set();
+    Object.values(buckets).forEach(arr => {
+      arr.sort((a, b) => a.id - b.id);
+      picks.add(arr[0].id);
+    });
+    return picks;
+  }
+
+  function outlineColorFor(l) {
+    if (l.category === 'sale') return SALE_COLOR;
+    if (l.category === 'lease') return LEASE_COLOR;
+    return l.subType === 'sale' ? SALE_COLOR : LEASE_COLOR;
+  }
+  function isPillShape(l) {
+    return l.category === 'lease' || (l.category === 'comp' && l.subType === 'lease');
+  }
+
+  function liftedMarkerTopY(listing, py) {
+    const h = listing.category === 'comp' ? COMP_HEIGHT : SALE_LEASE_HEIGHT;
+    return py - (h / 2) * HOVER_SCALE - HOVER_LIFT;
+  }
+  function liftedMarkerBottomY(listing, py) {
+    const h = listing.category === 'comp' ? COMP_HEIGHT : SALE_LEASE_HEIGHT;
+    return py + (h / 2) * HOVER_SCALE - HOVER_LIFT;
+  }
+
+  function setHovered(id) { if (hoveredId !== id) { hoveredId = id; update(); } }
+  function clearHovered(id) { if (hoveredId === id) { hoveredId = null; update(); } }
+  function setSelected(id) {
+    if (selectedId === id) selectedId = null;
+    else selectedId = id;
+    renderCard(); update();
+  }
+  function clearSelected() {
+    if (selectedId !== null) { selectedId = null; renderCard(); update(); }
+  }
+
+  function makeDot(l) {
+    const isComp = l.category === 'comp';
+    const outlineColor = outlineColorFor(l);
+    const dot = document.createElement('div');
+    dot.dataset.id = l.id;
+    let bg, border;
+    if (!isComp) {
+      bg = outlineColor;
+      border = DOT_BORDER + ' solid white';
+    } else {
+      bg = 'white';
+      border = DOT_BORDER + ' solid ' + outlineColor;
+    }
+    Object.assign(dot.style, {
+      position: 'absolute',
+      width: DOT_W + 'px', height: DOT_H + 'px',
+      borderRadius: DOT_RADIUS,
+      background: bg,
+      border: border,
+      boxShadow: '0 1px 2px rgba(0,0,0,0.18)',
+      transition: 'opacity ' + MORPH_DURATION + 'ms ease-out, left ' + ZOOM_DURATION + 'ms ' + ZOOM_EASING + ', top ' + ZOOM_DURATION + 'ms ' + ZOOM_EASING,
+      boxSizing: 'content-box',
+      cursor: 'pointer',
+    });
+    return dot;
+  }
+
+  function makeMarker(l) {
+    const isComp = l.category === 'comp';
+    const outlineColor = outlineColorFor(l);
+    const pillShape = isPillShape(l);
+    const wrap = document.createElement('div');
+    wrap.dataset.id = l.id;
+    Object.assign(wrap.style, {
+      position: 'absolute', cursor: 'pointer',
+      transition: 'transform ' + LIFT_DURATION + 'ms cubic-bezier(0.2, 0.7, 0.3, 1.2), filter ' + LIFT_DURATION + 'ms ease-out, opacity ' + MORPH_DURATION + 'ms ease-out, left ' + ZOOM_DURATION + 'ms ' + ZOOM_EASING + ', top ' + ZOOM_DURATION + 'ms ' + ZOOM_EASING,
+      opacity: '0',
+      filter: 'drop-shadow(0 2px 4px rgba(0,0,0,0.18))',
+    });
+    if (isComp) {
+      const text = l.price;
+      const charW = 6.8;
+      const textW = Math.ceil(text.length * charW);
+      const padX = 14;
+      const w = textW + padX * 2;
+      const h = 26;
+      const caretW = 12;
+      const caretH = 6;
+      const r = pillShape ? h / 2 : 8;
+      const cx = w / 2;
+      const path = ['M', r, 0, 'H', w - r, 'A', r, r, 0, 0, 1, w, r, 'V', h - r, 'A', r, r, 0, 0, 1, w - r, h, 'H', cx + caretW / 2, 'L', cx, h + caretH, 'L', cx - caretW / 2, h, 'H', r, 'A', r, r, 0, 0, 1, 0, h - r, 'V', r, 'A', r, r, 0, 0, 1, r, 0, 'Z'].join(' ');
+      const svgNS = 'http://www.w3.org/2000/svg';
+      const svg = document.createElementNS(svgNS, 'svg');
+      svg.setAttribute('width', w); svg.setAttribute('height', h + caretH);
+      svg.setAttribute('viewBox', '0 0 ' + w + ' ' + (h + caretH));
+      svg.style.display = 'block';
+      const shape = document.createElementNS(svgNS, 'path');
+      shape.setAttribute('d', path); shape.setAttribute('fill', 'white');
+      shape.setAttribute('stroke', outlineColor); shape.setAttribute('stroke-width', '1.5'); shape.setAttribute('stroke-linejoin', 'round');
+      svg.appendChild(shape);
+      const txt = document.createElementNS(svgNS, 'text');
+      txt.setAttribute('x', cx); txt.setAttribute('y', h / 2);
+      txt.setAttribute('text-anchor', 'middle'); txt.setAttribute('dominant-baseline', 'central');
+      txt.setAttribute('font-size', '12'); txt.setAttribute('font-weight', '500');
+      txt.setAttribute('fill', outlineColor); txt.setAttribute('font-family', 'inherit');
+      txt.textContent = text;
+      svg.appendChild(txt);
+      wrap.appendChild(svg);
+    } else {
+      const inner = document.createElement('div');
+      inner.style.position = 'relative';
+      const bubble = document.createElement('div');
+      Object.assign(bubble.style, {
+        padding: '5px 11px', borderRadius: pillShape ? '14px' : '8px',
+        background: outlineColor, color: 'white',
+        fontSize: '12px', fontWeight: '500', whiteSpace: 'nowrap', lineHeight: '1.2', position: 'relative',
+      });
+      bubble.textContent = l.price;
+      const caret = document.createElement('div');
+      Object.assign(caret.style, {
+        position: 'absolute', left: '50%', top: '100%', width: '0', height: '0',
+        transform: 'translateX(-50%)',
+        borderLeft: '6px solid transparent', borderRight: '6px solid transparent', borderTop: '6px solid ' + outlineColor,
+      });
+      inner.appendChild(bubble); inner.appendChild(caret);
+      wrap.appendChild(inner);
+    }
+    wrap.addEventListener('mouseenter', () => setHovered(l.id));
+    wrap.addEventListener('mouseleave', () => clearHovered(l.id));
+    wrap.addEventListener('click', (e) => { e.stopPropagation(); setSelected(l.id); });
+    return wrap;
+  }
+
+  function applyCenterTransform(marker, isLifted) {
+    if (isLifted) {
+      marker.style.transform = 'translate(-50%, -50%) translateY(-' + HOVER_LIFT + 'px) scale(' + HOVER_SCALE + ')';
+    } else {
+      marker.style.transform = 'translate(-50%, -50%)';
+    }
+  }
+  function projected(l, scale) {
+    const dx = l.x - MAP_CX;
+    const dy = l.y - MAP_CY;
+    return { x: MAP_CX + dx * scale, y: MAP_CY + dy * scale };
+  }
+
+  function makeCard(l) {
+    const card = document.createElement('div');
+    Object.assign(card.style, {
+      position: 'absolute', width: CARD_W + 'px',
+      background: 'white', borderRadius: '14px',
+      boxShadow: '0 8px 24px rgba(0,0,0,0.18), 0 2px 4px rgba(0,0,0,0.08)',
+      overflow: 'hidden', pointerEvents: 'auto', fontFamily: 'inherit',
+      zIndex: '2000',
+    });
+    const imgWrap = document.createElement('div');
+    Object.assign(imgWrap.style, {
+      position: 'relative', width: '100%', height: '140px',
+      background: '#D3D1C7', display: 'flex', alignItems: 'center', justifyContent: 'center',
+    });
+    const placeholderLabel = document.createElement('span');
+    Object.assign(placeholderLabel.style, {
+      color: '#888780', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.05em',
+    });
+    placeholderLabel.textContent = 'Property image';
+    imgWrap.appendChild(placeholderLabel);
+    const closeBtn = document.createElement('button');
+    Object.assign(closeBtn.style, {
+      position: 'absolute', top: '10px', left: '10px',
+      width: '28px', height: '28px', borderRadius: '50%',
+      background: 'rgba(255,255,255,0.95)', border: 'none',
+      display: 'flex', alignItems: 'center', justifyContent: 'center',
+      cursor: 'pointer', padding: '0', boxShadow: '0 1px 3px rgba(0,0,0,0.18)',
+    });
+    closeBtn.innerHTML = '<i class="ti ti-x" style="font-size:16px; color:#444441;"></i>';
+    closeBtn.setAttribute('aria-label', 'Close');
+    closeBtn.addEventListener('click', (e) => { e.stopPropagation(); clearSelected(); });
+    imgWrap.appendChild(closeBtn);
+    const star = document.createElement('button');
+    Object.assign(star.style, {
+      position: 'absolute', top: '10px', right: '10px',
+      width: '32px', height: '32px', borderRadius: '50%',
+      background: 'rgba(255,255,255,0.95)', border: 'none',
+      display: 'flex', alignItems: 'center', justifyContent: 'center',
+      cursor: 'pointer', padding: '0', boxShadow: '0 1px 3px rgba(0,0,0,0.18)',
+    });
+    star.innerHTML = '<i class="ti ti-star" style="font-size:18px; color:#5F5E5A;"></i>';
+    imgWrap.appendChild(star);
+    const carouselDots = document.createElement('div');
+    Object.assign(carouselDots.style, {
+      position: 'absolute', bottom: '10px', left: '50%', transform: 'translateX(-50%)',
+      background: 'rgba(0,0,0,0.5)', padding: '4px 8px', borderRadius: '999px',
+      display: 'flex', gap: '4px',
+    });
+    for (let i = 0; i < 5; i++) {
+      const d = document.createElement('span');
+      Object.assign(d.style, {
+        width: '5px', height: '5px', borderRadius: '50%',
+        background: i === 0 ? 'white' : 'rgba(255,255,255,0.5)',
+      });
+      carouselDots.appendChild(d);
+    }
+    imgWrap.appendChild(carouselDots);
+    card.appendChild(imgWrap);
+
+    const body = document.createElement('div');
+    Object.assign(body.style, { padding: '14px 16px 16px' });
+    const cat = l.category === 'comp' ? (l.subType === 'sale' ? 'Sold (comp)' : 'Leased (comp)') : (l.category === 'sale' ? 'For sale' : 'For lease');
+    const catColor = outlineColorFor(l);
+    const catRow = document.createElement('div');
+    Object.assign(catRow.style, { display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '4px' });
+    catRow.innerHTML = '<span style="display:inline-block; width:9px; height:9px; border-radius:50%; background:' + catColor + ';"></span><span style="font-size:13px; color:#444441;">' + cat + '</span>';
+    body.appendChild(catRow);
+    const priceEl = document.createElement('div');
+    Object.assign(priceEl.style, { fontSize: '20px', fontWeight: '500', color: '#1a1a1a', marginBottom: '10px' });
+    priceEl.textContent = l.fullPrice;
+    body.appendChild(priceEl);
+    const detailsEl = document.createElement('div');
+    Object.assign(detailsEl.style, { fontSize: '13px', color: '#444441', marginBottom: '6px' });
+    detailsEl.textContent = l.propType + ' | ' + l.sqft + ' SqFt';
+    body.appendChild(detailsEl);
+    const addrEl = document.createElement('div');
+    Object.assign(addrEl.style, { fontSize: '12px', color: '#888780', marginBottom: '12px' });
+    addrEl.textContent = addressFor(l.id);
+    body.appendChild(addrEl);
+    const brokerRow = document.createElement('div');
+    Object.assign(brokerRow.style, { display: 'flex', alignItems: 'center', gap: '8px' });
+    const brokerLogo = document.createElement('div');
+    Object.assign(brokerLogo.style, {
+      width: '28px', height: '28px', borderRadius: '4px',
+      background: '#D3D1C7', display: 'flex', alignItems: 'center', justifyContent: 'center',
+      fontSize: '9px', color: '#5F5E5A', fontWeight: '500',
+    });
+    brokerLogo.textContent = 'LOGO';
+    brokerRow.appendChild(brokerLogo);
+    const brokerName = document.createElement('div');
+    Object.assign(brokerName.style, { fontSize: '12px', color: '#444441' });
+    brokerName.textContent = 'Brokerage Name';
+    brokerRow.appendChild(brokerName);
+    body.appendChild(brokerRow);
+    card.appendChild(body);
+
+    card.addEventListener('click', (e) => e.stopPropagation());
+    return card;
+  }
+
+  function renderCard() {
+    if (cardEl) { cardEl.remove(); cardEl = null; }
+    if (selectedId == null) return;
+    const listing = listings.find(l => l.id === selectedId);
+    if (!listing) return;
+    const scale = zoomToScale(+zoomEl.value);
+    const p = projected(listing, scale);
+    const markerTopLifted = liftedMarkerTopY(listing, p.y);
+    const markerBottomLifted = liftedMarkerBottomY(listing, p.y);
+    cardEl = makeCard(listing);
+    marksLayer.appendChild(cardEl);
+    let cardTop = markerTopLifted - CARD_GAP - CARD_H;
+    let cardLeft = p.x - CARD_W / 2;
+    let flipped = false;
+    if (cardTop < 8) {
+      cardTop = markerBottomLifted + CARD_GAP;
+      flipped = true;
+    }
+    if (cardLeft < 8) cardLeft = 8;
+    if (cardLeft + CARD_W > MAP_W - 8) cardLeft = MAP_W - CARD_W - 8;
+    cardEl.style.left = cardLeft + 'px';
+    cardEl.style.top = cardTop + 'px';
+    cardEl.animate(
+      [{ opacity: 0, transform: 'translateY(' + (flipped ? '-' : '') + '6px)' }, { opacity: 1, transform: 'translateY(0)' }],
+      { duration: 180, easing: 'cubic-bezier(0.2, 0.7, 0.3, 1)', fill: 'forwards' }
+    );
+  }
+
+  function rebuild() {
+    dotsLayer.innerHTML = '';
+    marksLayer.innerHTML = '';
+    cardEl = null;
+    elementsById.clear();
+    const scale = zoomToScale(+zoomEl.value);
+    listings.forEach(l => {
+      const p = projected(l, scale);
+      const dot = makeDot(l);
+      dot.style.left = p.x + 'px'; dot.style.top = p.y + 'px';
+      dot.style.transform = 'translate(-50%, -50%)';
+      dotsLayer.appendChild(dot);
+      const marker = makeMarker(l);
+      marker.style.left = p.x + 'px'; marker.style.top = p.y + 'px';
+      marksLayer.appendChild(marker);
+      dot.addEventListener('mouseenter', () => setHovered(l.id));
+      dot.addEventListener('mouseleave', () => clearHovered(l.id));
+      dot.addEventListener('click', (e) => { e.stopPropagation(); setSelected(l.id); });
+      elementsById.set(l.id, { dot, marker, listing: l });
+    });
+    currentMarkers = pickMarkers();
+    update();
+  }
+
+  function reposition() {
+    const scale = zoomToScale(+zoomEl.value);
+    elementsById.forEach(({ dot, marker, listing }) => {
+      const p = projected(listing, scale);
+      dot.style.left = p.x + 'px'; dot.style.top = p.y + 'px';
+      marker.style.left = p.x + 'px'; marker.style.top = p.y + 'px';
+    });
+    renderCard();
+  }
+
+  function update() {
+    elementsById.forEach(({ dot, marker, listing }, id) => {
+      const isMarker = currentMarkers.has(id);
+      const isHovered = hoveredId === id;
+      const isSelected = selectedId === id;
+      const showMarker = isMarker || isHovered || isSelected;
+      const isLifted = isHovered || isSelected;
+      dot.style.opacity = showMarker ? '0' : '1';
+      marker.style.opacity = showMarker ? '1' : '0';
+      applyCenterTransform(marker, isLifted);
+      if (isLifted) {
+        marker.style.filter = 'drop-shadow(0 6px 12px rgba(0,0,0,0.22))';
+        marker.style.zIndex = isSelected ? '1100' : '1000';
+      } else {
+        marker.style.filter = 'drop-shadow(0 2px 4px rgba(0,0,0,0.18))';
+        marker.style.zIndex = 3 + Math.floor((MAP_H - listing.y) / 8);
+      }
+    });
+  }
+
+  function applyZoomToBackground() {
+    const scale = zoomToScale(+zoomEl.value);
+    bgSvg.style.transform = 'scale(' + scale + ')';
+  }
+
+  function setMode(m) {
+    mode = m;
+    modeToggle.querySelectorAll('button').forEach(b => {
+      const active = b.dataset.mode === m;
+      b.setAttribute('aria-selected', active ? 'true' : 'false');
+      if (active) {
+        b.style.color = m === 'sale' ? '#185FA5' : (m === 'lease' ? '#534AB7' : '#1F1E1A');
+      } else {
+        b.style.color = '';
+      }
+    });
+    listings = buildListings(mode, mode === 'sale' ? 11 : (mode === 'lease' ? 23 : 41));
+    hoveredId = null; selectedId = null;
+    rebuild(); applyZoomToBackground();
+  }
+
+  function updateZoomLabel() {
+    const zoom = +zoomEl.value;
+    if (zoom < 25) zoomLabel.textContent = 'Country';
+    else if (zoom < 55) zoomLabel.textContent = 'State';
+    else if (zoom < 80) zoomLabel.textContent = 'Metro';
+    else zoomLabel.textContent = 'Neighborhood';
+  }
+
+  function onZoomInput() {
+    updateZoomLabel(); applyZoomToBackground(); reposition();
+    if (debounceTimer) clearTimeout(debounceTimer);
+    debounceTimer = setTimeout(() => {
+      currentMarkers = pickMarkers();
+      update();
+    }, DEBOUNCE_MS);
+  }
+
+  modeToggle.querySelectorAll('button').forEach(b => {
+    b.addEventListener('click', () => setMode(b.dataset.mode));
+  });
+  const initialActive = modeToggle.querySelector('button[aria-selected="true"]');
+  if (initialActive) initialActive.style.color = '#185FA5';
+  zoomEl.addEventListener('input', onZoomInput);
+  document.getElementById('map-container').addEventListener('click', () => clearSelected());
+
+  rebuild(); applyZoomToBackground();
+})();
+</script>
+</body>
+</html>
